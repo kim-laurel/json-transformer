@@ -296,5 +296,4 @@ json-xslt/
 
 - Multiple condition chains (`if/else if/else if/else`)
 - Aggregation across forEach items (`sum`, `count`, `min`, `max`)
-- `default` value fallback per field
 - TypeScript declarations
