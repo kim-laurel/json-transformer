@@ -15,7 +15,7 @@
  * If --output is omitted, results are written to stdout (piped-friendly).
  */
 
-import { transform } from "./transform.js";
+import { transform, prepareMapping } from "./transform.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,8 +147,14 @@ async function main(rawArgs) {
     die(`failed to load mapping: ${e.message}`);
   });
 
+  // Resolve the directory of the mapping file for $file relative paths
+  const mappingDir = path.dirname(path.resolve(args.mapping));
+
+  // Prepare mapping (loads external dictionaries, builds lookup maps)
+  const ready = await prepareMapping(mapping, mappingDir);
+
   // Transform
-  const results = transform(sourceData, mapping);
+  const results = transform(sourceData, ready);
 
   // Output
   const output = args.pretty

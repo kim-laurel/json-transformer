@@ -1,0 +1,30 @@
+[
+  {
+    "employee_id": "E001",
+    "week": "2025-W01",
+    "hours": 40,
+    "project_code": "PRJ-100",
+    "status": "A"
+  },
+  {
+    "employee_id": "E002",
+    "week": "2025-W01",
+    "hours": 32,
+    "project_code": "PRJ-200",
+    "status": "A"
+  },
+  {
+    "employee_id": "E010",
+    "week": "2025-W01",
+    "hours": 45,
+    "project_code": "PRJ-100",
+    "status": "L"
+  },
+  {
+    "employee_id": "E999",
+    "week": "2025-W01",
+    "hours": 38,
+    "project_code": "PRJ-300",
+    "status": "A"
+  }
+]

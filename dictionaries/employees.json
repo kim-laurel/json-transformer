@@ -1,0 +1,42 @@
+[
+  {
+    "employee_id": "E001",
+    "full_name": "Alice Johnson",
+    "dept_code": "ENG",
+    "manager_id": "E010",
+    "hire_date": "2019-03-15",
+    "email": "alice.johnson@example.com"
+  },
+  {
+    "employee_id": "E002",
+    "full_name": "Bob Chen",
+    "dept_code": "MKT",
+    "manager_id": "E011",
+    "hire_date": "2020-07-01",
+    "email": "bob.chen@example.com"
+  },
+  {
+    "employee_id": "E010",
+    "full_name": "Carol Smith",
+    "dept_code": "ENG",
+    "manager_id": "E020",
+    "hire_date": "2015-01-10",
+    "email": "carol.smith@example.com"
+  },
+  {
+    "employee_id": "E011",
+    "full_name": "Dan Wilson",
+    "dept_code": "MKT",
+    "manager_id": "E020",
+    "hire_date": "2016-06-22",
+    "email": "dan.wilson@example.com"
+  },
+  {
+    "employee_id": "E020",
+    "full_name": "Eve Martinez",
+    "dept_code": "EXEC",
+    "manager_id": null,
+    "hire_date": "2010-11-01",
+    "email": "eve.martinez@example.com"
+  }
+]

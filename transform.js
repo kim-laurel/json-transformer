@@ -2,12 +2,20 @@
  * json-xslt — Lightweight declarative JSON transformation engine
  *
  * Usage:
- *   import { transform } from './transform.js';
+ *   import { transform, prepareMapping } from './transform.js';
  *   import mapping from './my-mapping.js';
- *   const result = transform(sourceData, mapping);
  *
- * Supports nested source paths ("address.city") and nested target blocks.
+ *   // Programmatic (automatic dictionary loading):
+ *   const ready = await prepareMapping(mapping);
+ *   const result = transform(sourceData, ready);
+ *
+ * Supports nested source paths ("address.city"), nested target blocks,
+ * external dictionary loading, and forEach iteration.
  */
+
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // ── Path helpers ─────────────────────────────────────────────────────
 
@@ -23,7 +31,6 @@ function resolvePath(obj, pathStr) {
   let cursor = obj;
   for (const part of parts) {
     if (cursor === null || cursor === undefined) return undefined;
-    // Support numeric index into arrays
     cursor = cursor[part];
   }
   return cursor;
@@ -39,13 +46,87 @@ function setPath(obj, pathStr, value) {
   for (let i = 0; i < parts.length - 1; i++) {
     const key = parts[i];
     const next = parts[i + 1];
-    // If the next key looks like an array index, create an array
     if (!cursor[key] || typeof cursor[key] !== "object") {
       cursor[key] = /^\d+$/.test(next) ? [] : {};
     }
     cursor = cursor[key];
   }
   cursor[parts[parts.length - 1]] = value;
+}
+
+// ── Dictionary loader ────────────────────────────────────────────────
+
+/**
+ * Load and index dictionaries defined in a mapping.
+ *
+ * Supports two formats:
+ *
+ *   1. Inline:  { statusMap: { "A": "Active", ... } }
+ *
+ *   2. External: { employees: { $file: "./employees.json", indexBy: "id" } }
+ *
+ * $file paths are resolved relative to the mapping file's directory.
+ * Returns a new mapping object with dictionaries resolved into lookup maps.
+ *
+ * @param {Object} mapping   — mapping definition (may be mutated)
+ * @param {string} baseDir   — directory to resolve $file paths against
+ * @returns {Promise<Object>} — mapping with loaded dictionaries
+ */
+export async function prepareMapping(mapping, baseDir = ".") {
+  if (!mapping.dictionaries || typeof mapping.dictionaries !== "object") {
+    return mapping;
+  }
+
+  const resolved = {};
+  for (const [name, def] of Object.entries(mapping.dictionaries)) {
+    if (def && typeof def === "object" && "$file" in def) {
+      const filePath = resolve(baseDir, def.$file);
+      let data;
+      try {
+        data = JSON.parse(readFileSync(filePath, "utf-8"));
+      } catch (e) {
+        throw new Error(`Failed to load dictionary "${name}" from ${filePath}: ${e.message}`);
+      }
+
+      if (def.indexBy) {
+        // Build lookup map from array of objects
+        if (!Array.isArray(data)) {
+          throw new Error(`Dictionary "${name}": expected an array for indexBy "${def.indexBy}"`);
+        }
+        resolved[name] = {};
+        for (const item of data) {
+          const key = String(resolvePath(item, def.indexBy));
+          resolved[name][key] = item;
+        }
+      } else {
+        // Use as-is (must already be a key→value map)
+        resolved[name] = data;
+      }
+    } else {
+      // Inline dictionary — use as-is
+      resolved[name] = def;
+    }
+  }
+
+  return { ...mapping, dictionaries: resolved, __resolved: true };
+}
+
+/**
+ * Synchronous alternative when all dictionaries are inline.
+ * Throws if any dictionary uses $file (use prepareMapping instead).
+ */
+export function prepareMappingSync(mapping, baseDir = ".") {
+  if (!mapping.dictionaries || typeof mapping.dictionaries !== "object") {
+    return mapping;
+  }
+  for (const [name, def] of Object.entries(mapping.dictionaries)) {
+    if (def && typeof def === "object" && "$file" in def) {
+      throw new Error(
+        `Dictionary "${name}" uses $file — use the async prepareMapping() instead of prepareMappingSync()`
+      );
+    }
+  }
+  return { ...mapping, dictionaries: mapping.dictionaries, __resolved: true };
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────
@@ -96,7 +177,6 @@ function formatDate(dateValue, outputFormat) {
 // ── Condition evaluation ─────────────────────────────────────────────
 
 function evaluateCondition(sourceRow, condition) {
-  // ── Composable logic ────────────────────────────────────────────
   if (condition.and) {
     return Array.isArray(condition.and) && condition.and.every(c => evaluateCondition(sourceRow, c));
   }
@@ -107,10 +187,7 @@ function evaluateCondition(sourceRow, condition) {
     return !evaluateCondition(sourceRow, condition.not);
   }
 
-  // ── Leaf condition ──────────────────────────────────────────────
   const { field, op, value } = condition;
-
-  // Support dot-path in condition field
   const actual = field.includes(".")
     ? resolvePath(sourceRow, field)
     : sourceRow[field];
@@ -136,19 +213,18 @@ function evaluateCondition(sourceRow, condition) {
 
 // ── Core transform ───────────────────────────────────────────────────
 
-function transformField(sourceRow, fieldDef) {
+function transformField(sourceRow, fieldDef, dictionaries = {}) {
   // 0. Nested sub-mapping (recursive)
   if ("fields" in fieldDef && typeof fieldDef.fields === "object") {
-    // Check if this is also a forEach
     if (fieldDef.forEach !== undefined) {
-      return transformForEach(sourceRow, fieldDef);
+      return transformForEach(sourceRow, fieldDef, dictionaries);
     }
-    return transformOne(sourceRow, { fields: fieldDef.fields });
+    return transformOne(sourceRow, { fields: fieldDef.fields }, dictionaries);
   }
 
   // 1. forEach — array iteration
   if (fieldDef.forEach !== undefined) {
-    return transformForEach(sourceRow, fieldDef);
+    return transformForEach(sourceRow, fieldDef, dictionaries);
   }
 
   // 2. Literal / static value
@@ -171,33 +247,53 @@ function transformField(sourceRow, fieldDef) {
   if (typeof fieldDef.compute === "function") {
     const fromPaths = Array.isArray(fieldDef.from) ? fieldDef.from : [fieldDef.from];
     const values = fromPaths.map(f => resolvePath(sourceRow, f));
-    return fieldDef.compute(...values, sourceRow);
+    return fieldDef.compute(...values, sourceRow, dictionaries);
   }
 
   // 5. Field mapping (rename / map / format)
   const sourcePath = fieldDef.from;
   if (!sourcePath) return undefined;
 
-  const rawValue = Array.isArray(sourcePath)
-    ? sourcePath.map(p => resolvePath(sourceRow, p))
-    : resolvePath(sourceRow, sourcePath);
+  // Determine the lookup key (from source field or explicit lookupKey)
+  let lookupKey = fieldDef.lookupKey
+    ? resolvePath(sourceRow, fieldDef.lookupKey)
+    : Array.isArray(sourcePath)
+      ? sourcePath.map(p => resolvePath(sourceRow, p))
+      : resolvePath(sourceRow, sourcePath);
 
-  let result = rawValue;
+  let result = lookupKey;
 
-  // Default value fallback
+  // 5a. Dictionary lookup
+  if (fieldDef.lookup) {
+    const dict = dictionaries[fieldDef.lookup];
+    if (dict !== undefined) {
+      if (result !== undefined && result !== null) {
+        const key = String(result);
+        const entry = dict[key];
+        // If lookupPath is set, drill into the dictionary entry
+        if (fieldDef.lookupPath && entry !== undefined) {
+          result = resolvePath(entry, fieldDef.lookupPath);
+        } else {
+          result = entry;
+        }
+      }
+    }
+  }
+
+  // 5b. Default value fallback
   if (result === undefined || result === null) {
     result = fieldDef.default;
   }
 
-  // Apply value map
+  // 5c. Apply value map
   if (typeof fieldDef.map === "object" && result !== undefined && result !== null) {
     result = fieldDef.map[result] ?? result;
   }
 
-  // Apply format (null-safe)
+  // 5d. Apply format (null-safe)
   if (fieldDef.format) {
     if (result === undefined || result === null) {
-      return null;  // propagate null through formats
+      return null;
     }
     switch (fieldDef.format) {
       case "date":
@@ -232,34 +328,22 @@ function transformField(sourceRow, fieldDef) {
   return result;
 }
 
-/**
- * Handle forEach: iterate over a source array, transform each item.
- *
- * {
- *   forEach: "LineItems",
- *   fields: {
- *     product: { from: "ProductSKU" },
- *     qty: { from: "Quantity", format: "number" },
- *   }
- * }
- */
-function transformForEach(sourceRow, fieldDef) {
+function transformForEach(sourceRow, fieldDef, dictionaries) {
   const sourceArray = resolvePath(sourceRow, fieldDef.forEach);
   if (!Array.isArray(sourceArray)) return [];
 
   const subMapping = { fields: fieldDef.fields };
-  return sourceArray.map(item => transformOne(item, subMapping));
+  return sourceArray.map(item => transformOne(item, subMapping, dictionaries));
 }
 
 /**
  * Transform a single source object.
- * Supports dot-path target keys:
- *   "contact.email" → { contact: { email: ... } }
  */
-export function transformOne(sourceRow, mapping) {
+export function transformOne(sourceRow, mapping, dictionaries = {}) {
+  const dicts = mapping.dictionaries || dictionaries;
   const result = {};
   for (const [targetKey, fieldDef] of Object.entries(mapping.fields)) {
-    const value = transformField(sourceRow, fieldDef);
+    const value = transformField(sourceRow, fieldDef, dicts);
     if (targetKey.includes(".")) {
       setPath(result, targetKey, value);
     } else {
@@ -271,10 +355,7 @@ export function transformOne(sourceRow, mapping) {
 
 /**
  * Transform an array of source objects.
- * @param {Array<Object>} source  — input JSON array
- * @param {Object} mapping        — mapping definition
- * @returns {Array<Object>}       — transformed array
  */
-export function transform(source, mapping) {
-  return source.map(row => transformOne(row, mapping));
+export function transform(source, mapping, dictionaries = {}) {
+  return source.map(row => transformOne(row, mapping, dictionaries));
 }

@@ -1,0 +1,7 @@
+[
+  { "code": "ENG", "name": "Engineering", "budget_center": "E-100" },
+  { "code": "MKT", "name": "Marketing", "budget_center": "M-200" },
+  { "code": "SALES", "name": "Sales", "budget_center": "S-300" },
+  { "code": "HR", "name": "Human Resources", "budget_center": "H-400" },
+  { "code": "EXEC", "name": "Executive", "budget_center": "X-000" }
+]
