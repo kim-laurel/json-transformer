@@ -184,6 +184,11 @@ function transformField(sourceRow, fieldDef) {
 
   let result = rawValue;
 
+  // Default value fallback
+  if (result === undefined || result === null) {
+    result = fieldDef.default;
+  }
+
   // Apply value map
   if (typeof fieldDef.map === "object" && result !== undefined && result !== null) {
     result = fieldDef.map[result] ?? result;

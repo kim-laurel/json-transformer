@@ -51,6 +51,7 @@ export default {
 | **If / then** | `if`, `then`, `else` | See condition reference below |
 | **Compute** | `from` (array), `compute` | `{ from: ["First","Last"], compute: (f,l) => f + " " + l }` |
 | **Literal** | `value` | `{ value: "constant" }` |
+| **Default** | `default` | `{ from: "Region", default: "Unknown" }` |
 
 ### Condition operators
 
@@ -145,6 +146,25 @@ fields: {
 }
 // → { "address.city": "NYC", "address.state": "NY" }
 ```
+
+### Default value fallback
+
+Use `default` to provide a fallback when the source field is missing or `null`. The default then flows through the rest of the pipeline (map, format):
+
+```javascript
+fields: {
+  // source missing → uses default
+  region:   { from: "Region", default: "Unknown" },
+
+  // source null → uses default
+  title:    { from: "Title", default: "Untitled" },
+
+  // default flows through the format pipeline
+  country:  { from: "Country", default: "us", format: "uppercase" },
+}
+```
+
+Falsy defaults like `0`, `false`, or `""` are preserved — `default` only kicks in when the source is `undefined` or `null`.
 
 ### Composite conditions (`and` / `or` / `not`)
 
