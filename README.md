@@ -640,8 +640,32 @@ json-xslt/
 
 - Value maps are **exact-match only** (no regex keys)
 - `compute` functions must be plain JavaScript (not JSON-serializable — use `.js` mappings)
-- Cross-row computations not supported (each row transforms independently)
+- Cross-row computations not supported — each row transforms independently with no knowledge of other rows. This means the following are not possible: running totals, each row's value as a percentage of the dataset total, ranking rows by a field, or referencing the previous/next row's value
 
 ## Future ideas
 
+**Data shaping**
+- `distinct` — deduplicate `forEach` output by a field (e.g. unique SKUs only)
+- `groupBy` — reshape a flat array into an object keyed by a field value (e.g. group line items by status)
+- `flatten` — collapse a nested array one level before iterating
+
+**Field-level**
+- `truncate` — trim a string to a max length with an optional suffix (`"..."`)
+- `replace` — regex or literal string substitution without needing a full `compute`
+- `camelCase` / `snake_case` / `kebab-case` — identifier casing formats to complement `titlecase`
+
+**Mapping-level**
+- `include` allowlist on `passthrough` — currently only `exclude` is supported
+- Mapping composition — extend another mapping definition, similar to how CSS classes compose
+- Cross-row computations — running totals, percentage of dataset total, ranking rows by a field, previous/next row references
+
+**Validation**
+- `required` — throw or warn when a source field is missing
+- Schema validation — assert expected types on source fields before transforming
+
+**CLI / engine**
+- Streaming support — process large files line by line rather than loading the full array into memory
+- Multiple input files — merge or zip two source files before transforming
+
+**Tooling**
 - TypeScript declarations
