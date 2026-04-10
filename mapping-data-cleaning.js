@@ -24,10 +24,15 @@ export default {
       format: "titlecase",
     },
 
-    // ── template: formatted mailing address ─────────────────────────
+    // ── compute: formatted mailing address ──────────────────────────
+    // compute is used here instead of template so each part can be
+    // formatted independently — street/city titlecased, state uppercased.
     address: {
-      template: "{street}, {city}, {state} {zip}",
-      format: "titlecase",
+      from: ["street", "city", "state", "zip"],
+      compute: (street, city, state, zip) => {
+        const tc = s => String(s).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+        return `${tc(street)}, ${tc(city)}, ${String(state).toUpperCase()} ${zip}`;
+      },
     },
 
     // ── titlecase: normalise an individual field in-place ────────────
