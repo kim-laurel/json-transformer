@@ -187,7 +187,7 @@ function applyFormat(value, fieldDef) {
     case "string":    return String(value);
     case "boolean":   return Boolean(value);
     case "negate":    return !value;
-    case "titlecase": return String(value).replace(/\b\w/g, c => c.toUpperCase());
+    case "titlecase": return String(value).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     case "round": {
       const factor = Math.pow(10, fieldDef.precision ?? 0);
       return Math.round(Number(value) * factor) / factor;
