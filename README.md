@@ -274,6 +274,89 @@ fields: {
 }
 ```
 
+#### Flattening nested arrays (`flatten`)
+
+Add `flatten` with a dot-path to extract a sub-array from each element of the `forEach` source and concatenate them all into a single flat list before any further processing. This is useful when your source contains an array of arrays.
+
+```javascript
+// Flatten orders → items into one list covering all orders
+all_line_items: {
+  forEach: "orders",
+  flatten: "items",
+  fields: {
+    sku:      { from: "sku" },
+    category: { from: "category" },
+    qty:      { from: "qty",   format: "number" },
+    price:    { from: "price", format: "round", precision: 2 },
+  },
+},
+
+// Flatten + filter — only bulk items across all orders
+bulk_items: {
+  forEach: "orders",
+  flatten: "items",
+  filter:  { field: "qty", op: "gt", value: 1 },
+  fields:  { sku: { from: "sku" }, qty: { from: "qty" } },
+},
+
+// Flatten + aggregate — total line items across all orders
+total_line_items: {
+  forEach:   "orders",
+  flatten:   "items",
+  aggregate: "count",
+},
+```
+
+`flatten` uses dot-path notation and runs before `filter`, `distinct`, `sortBy`, and `groupBy`.
+
+#### Grouping items (`groupBy`)
+
+Add `groupBy` to partition the array into an object keyed by a field value instead of mapping it to a new array. Each key holds an array of matching items; `fields` transforms each item within its group:
+
+```javascript
+// Group orders by their status field
+orders_by_status: {
+  forEach: "orders",
+  groupBy: "status",
+  fields: {
+    order_id:   { from: "order_id" },
+    item_count: { forEach: "items", aggregate: "count" },
+  },
+},
+// → { "shipped": [...], "pending": [...] }
+
+// Omit fields to keep raw source objects inside each group
+orders_raw_by_status: {
+  forEach: "orders",
+  groupBy: "status",
+},
+```
+
+`groupBy` composes naturally with `flatten` and `filter`:
+
+```javascript
+// Flatten orders → items, then group the combined list by category
+items_by_category: {
+  forEach:  "orders",
+  flatten:  "items",
+  groupBy:  "category",
+  fields: {
+    sku:   { from: "sku" },
+    qty:   { from: "qty", format: "number" },
+    price: { from: "price", format: "round", precision: 2 },
+  },
+},
+
+// Filter first, then group
+bulk_items_by_category: {
+  forEach:  "orders",
+  flatten:  "items",
+  filter:   { field: "qty", op: "gt", value: 1 },
+  groupBy:  "category",
+  fields:   { sku: { from: "sku" }, qty: { from: "qty" } },
+},
+```
+
 #### Deduplicating items (`distinct`)
 
 Add `distinct` to keep only the first occurrence of each unique value of a source field, dropping later duplicates. The pipeline order is **filter → distinct → sortBy → transform**:
@@ -752,6 +835,8 @@ json-xslt/
 ├── mapping-nested.js          # Example: nested objects & forEach
 ├── mapping-order-summary.js   # Example: aggregation, filter, sortBy
 ├── mapping-distinct.js        # Example: distinct deduplication (with filter, sortBy, aggregate)
+├── mapping-shaping.js         # Example: flatten and groupBy (with filter, distinct, aggregate)
+├── test-shaping.json          # Sample store/order/item data (for shaping demo)
 ├── mapping-validated.js       # Example: schema validation (all rule types)
 ├── mapping-data-cleaning.js   # Example: passthrough, template, coalesce, round, split, join, truncate, replace, casing
 ├── mapping-timesheet.js       # Example: dictionary lookups (inline + $file)
@@ -779,8 +864,6 @@ json-xslt/
 ## Future ideas
 
 **Data shaping**
-- `groupBy` — reshape a flat array into an object keyed by a field value (e.g. group line items by status)
-- `flatten` — collapse a nested array one level before iterating
 
 **Mapping-level**
 - Mapping composition — extend another mapping definition, similar to how CSS classes compose

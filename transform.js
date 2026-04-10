@@ -280,16 +280,16 @@ function transformField(sourceRow, fieldDef, dictionaries = {}) {
   // 0. Nested sub-mapping (recursive)
   if ("fields" in fieldDef && typeof fieldDef.fields === "object") {
     if (fieldDef.forEach !== undefined) {
+      if (fieldDef.groupBy) return transformGroupBy(sourceRow, fieldDef, dictionaries);
       return transformForEach(sourceRow, fieldDef, dictionaries);
     }
     return transformOne(sourceRow, { fields: fieldDef.fields }, dictionaries);
   }
 
-  // 1. forEach — array iteration or aggregation
+  // 1. forEach — array iteration, aggregation, or groupBy
   if (fieldDef.forEach !== undefined) {
-    if (fieldDef.aggregate) {
-      return transformAggregate(sourceRow, fieldDef, dictionaries);
-    }
+    if (fieldDef.aggregate) return transformAggregate(sourceRow, fieldDef, dictionaries);
+    if (fieldDef.groupBy)   return transformGroupBy(sourceRow, fieldDef, dictionaries);
     return transformForEach(sourceRow, fieldDef, dictionaries);
   }
 
@@ -396,17 +396,30 @@ function transformField(sourceRow, fieldDef, dictionaries = {}) {
   return applyFormat(result, fieldDef);
 }
 
-function transformForEach(sourceRow, fieldDef, dictionaries) {
-  let sourceArray = resolvePath(sourceRow, fieldDef.forEach);
-  if (!Array.isArray(sourceArray)) return [];
+/**
+ * Shared pre-processing for forEach-based fields.
+ * Pipeline: get source array → flatten → filter → distinct → sortBy
+ */
+function prepareSourceArray(sourceRow, fieldDef) {
+  let arr = resolvePath(sourceRow, fieldDef.forEach);
+  if (!Array.isArray(arr)) return [];
+
+  // Flatten: for each item in the source array, extract a sub-array and
+  // concatenate all of them into a single flat list.
+  if (fieldDef.flatten) {
+    arr = arr.flatMap(item => {
+      const sub = resolvePath(item, fieldDef.flatten);
+      return Array.isArray(sub) ? sub : [];
+    });
+  }
 
   if (fieldDef.filter) {
-    sourceArray = sourceArray.filter(item => evaluateCondition(item, fieldDef.filter));
+    arr = arr.filter(item => evaluateCondition(item, fieldDef.filter));
   }
 
   if (fieldDef.distinct) {
     const seen = new Set();
-    sourceArray = sourceArray.filter(item => {
+    arr = arr.filter(item => {
       const key = String(resolvePath(item, fieldDef.distinct) ?? "");
       if (seen.has(key)) return false;
       seen.add(key);
@@ -417,7 +430,7 @@ function transformForEach(sourceRow, fieldDef, dictionaries) {
   if (fieldDef.sortBy) {
     const sortField = typeof fieldDef.sortBy === "string" ? fieldDef.sortBy : fieldDef.sortBy.field;
     const desc = typeof fieldDef.sortBy === "object" && fieldDef.sortBy.order === "desc";
-    sourceArray = [...sourceArray].sort((a, b) => {
+    arr = [...arr].sort((a, b) => {
       const va = resolvePath(a, sortField);
       const vb = resolvePath(b, sortField);
       if (va === vb) return 0;
@@ -426,30 +439,45 @@ function transformForEach(sourceRow, fieldDef, dictionaries) {
     });
   }
 
+  return arr;
+}
+
+function transformForEach(sourceRow, fieldDef, dictionaries) {
+  const arr = prepareSourceArray(sourceRow, fieldDef);
   const subMapping = { fields: fieldDef.fields };
-  return sourceArray.map(item => transformOne(item, subMapping, dictionaries));
+  return arr.map(item => transformOne(item, subMapping, dictionaries));
+}
+
+function transformGroupBy(sourceRow, fieldDef, dictionaries) {
+  const arr = prepareSourceArray(sourceRow, fieldDef);
+
+  // Partition items into groups keyed by the groupBy field value
+  const groups = {};
+  for (const item of arr) {
+    const key = String(resolvePath(item, fieldDef.groupBy) ?? "");
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  }
+
+  // Transform each item within its group if a fields block is provided
+  if (!fieldDef.fields) return groups;
+
+  const subMapping = { fields: fieldDef.fields };
+  const result = {};
+  for (const [key, items] of Object.entries(groups)) {
+    result[key] = items.map(item => transformOne(item, subMapping, dictionaries));
+  }
+  return result;
 }
 
 function transformAggregate(sourceRow, fieldDef, dictionaries) {
-  let sourceArray = resolvePath(sourceRow, fieldDef.forEach);
-
-  if (!Array.isArray(sourceArray) || sourceArray.length === 0) {
+  // Check the raw source before any preprocessing so missing/empty returns early
+  const raw = resolvePath(sourceRow, fieldDef.forEach);
+  if (!Array.isArray(raw) || raw.length === 0) {
     return fieldDef.aggregate === "count" ? 0 : (fieldDef.default ?? null);
   }
 
-  if (fieldDef.filter) {
-    sourceArray = sourceArray.filter(item => evaluateCondition(item, fieldDef.filter));
-  }
-
-  if (fieldDef.distinct) {
-    const seen = new Set();
-    sourceArray = sourceArray.filter(item => {
-      const key = String(resolvePath(item, fieldDef.distinct) ?? "");
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
+  const sourceArray = prepareSourceArray(sourceRow, fieldDef);
 
   if (sourceArray.length === 0) {
     return fieldDef.aggregate === "count" ? 0 : (fieldDef.default ?? null);
