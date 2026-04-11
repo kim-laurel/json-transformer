@@ -812,6 +812,10 @@ node cli.js transform -d data.json -m mapping.js
 # Transform a CSV file (header row becomes field names)
 node cli.js transform -d data.csv -m mapping.js
 
+# Merge multiple input files before transforming (JSON and CSV can be mixed)
+node cli.js transform -d jan.json -d feb.json -d mar.json -m mapping.js
+node cli.js transform -d legacy.json -d new-export.csv -m mapping.js
+
 # Transform with JSON mapping (no compute functions needed)
 node cli.js transform -d data.json -m mapping.json
 
@@ -888,7 +892,7 @@ json-xslt/
 
 **CLI / engine**
 - Streaming support — process large files line by line rather than loading the full array into memory
-- Multiple input files — merge or zip two source files before transforming
+- Join / zip two input files — combine two separately-shaped datasets by a shared key field, similar to a SQL join. Unlike the existing dictionary feature (which treats one file as a lookup table), a join would treat both files as equal-rank datasets. Key design questions: join type (inner / left / outer), field namespacing when both sides share a field name, and whether many-to-many expansion is in scope.
 
 **Tooling**
 - TypeScript declarations
