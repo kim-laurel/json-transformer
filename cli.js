@@ -211,6 +211,141 @@ function parseCsv(text) {
     });
 }
 
+// ── Streaming CSV → JSON converter ──────────────────────────────────
+//
+// Reads the CSV file in 64KB chunks so the entire file is never held in
+// memory at once.  Records are written to the output as they are parsed,
+// and the output is split into numbered files once 200,000 records are
+// reached (matching the batch --convert behaviour).
+
+async function convertCsvStream(inputPath, outputPath, pretty) {
+  const CHUNK_SIZE = 200_000;
+  const outBase = outputPath ? path.resolve(outputPath) : null;
+  const ext     = outBase ? path.extname(outBase) : "";
+  const stem    = outBase ? (ext ? outBase.slice(0, -ext.length) : outBase) : null;
+
+  // CSV parser state
+  let headers    = null;
+  let field      = "";
+  let inQuotes   = false;
+  let csvRow     = [];
+  let prevWasCr  = false; // last char of previous chunk was \r
+
+  // Output state
+  let fd           = null;
+  let chunkNum     = 1;
+  let chunkRecords = 0;
+  let totalRecords = 0;
+  let firstInChunk = true;
+
+  const write = (s) => {
+    if (fd !== null) fs.writeSync(fd, s, null, "utf8");
+    else process.stdout.write(s);
+  };
+
+  function openChunk() {
+    if (!outBase) return;
+    fd = fs.openSync(`${stem}-${chunkNum}${ext}`, "w");
+    write("[\n");
+    firstInChunk = true;
+    chunkRecords = 0;
+  }
+
+  function closeChunk() {
+    write("\n]\n");
+    if (fd !== null) {
+      fs.closeSync(fd);
+      console.error(`wrote ${chunkRecords} record(s) to ${stem}-${chunkNum}${ext}`);
+      fd = null;
+    }
+  }
+
+  function writeRecord(obj) {
+    if (outBase && fd === null) openChunk();
+    const sep = firstInChunk ? (pretty ? "  " : "") : (pretty ? ",\n  " : ",");
+    firstInChunk = false;
+    if (pretty) {
+      write(sep + JSON.stringify(obj, null, 2).replace(/\n/g, "\n  "));
+    } else {
+      write(sep + JSON.stringify(obj));
+    }
+    totalRecords++;
+    chunkRecords++;
+    if (outBase && chunkRecords >= CHUNK_SIZE) {
+      closeChunk();
+      chunkNum++;
+    }
+  }
+
+  function emitCsvRow(r) {
+    if (headers === null) { headers = r; return; }
+    if (!r.some(v => v.trim())) return;
+    const obj = {};
+    for (let i = 0; i < headers.length; i++) obj[headers[i]] = r[i] ?? "";
+    writeRecord(obj);
+  }
+
+  function endField() { csvRow.push(field); field = ""; }
+  function endRow()   { endField(); emitCsvRow([...csvRow]); csvRow = []; }
+
+  // For stdout: open the array before the stream starts so output begins immediately
+  if (!outBase) write("[\n");
+
+  return new Promise((resolve, reject) => {
+    const rs = fs.createReadStream(inputPath, { encoding: "utf8", highWaterMark: 64 * 1024 });
+
+    rs.on("data", (chunk) => {
+      // If the previous chunk ended with \r and this one starts with \n,
+      // skip the \n — the row was already ended by the \r.
+      let start = (prevWasCr && chunk[0] === "\n") ? 1 : 0;
+      prevWasCr = chunk.length > 0 && chunk[chunk.length - 1] === "\r";
+
+      for (let i = start; i < chunk.length; i++) {
+        const ch = chunk[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (chunk[i + 1] === '"') { field += '"'; i++; } // escaped quote
+            else inQuotes = false;
+          } else if (ch === "\r") {
+            field += "\n";
+            if (chunk[i + 1] === "\n") i++; // consume paired \n within same chunk
+          } else if (ch === "\n") {
+            field += "\n";
+          } else {
+            field += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ",") {
+          endField();
+        } else if (ch === "\r") {
+          endRow();
+          if (chunk[i + 1] === "\n") i++; // consume paired \n within same chunk
+        } else if (ch === "\n") {
+          endRow();
+        } else {
+          field += ch;
+        }
+      }
+    });
+
+    rs.on("end", () => {
+      if (field || csvRow.length) endRow(); // flush last row if file lacks trailing newline
+      if (!outBase) {
+        write("\n]\n");
+      } else if (fd !== null) {
+        closeChunk();
+      } else if (totalRecords === 0) {
+        openChunk();
+        closeChunk(); // write empty [] for a header-only or empty CSV
+      }
+      resolve(totalRecords);
+    });
+
+    rs.on("error", reject);
+  });
+}
+
 // ── Mapping loader ───────────────────────────────────────────────────
 
 async function loadMapping(mappingPath) {
@@ -288,22 +423,28 @@ async function main(rawArgs) {
     if (!fs.existsSync(dataPath)) {
       die(`data file not found: ${dataPath}`);
     }
-    let data;
+
     if (args.convert.endsWith(".csv")) {
+      // Stream the CSV so the full file is never held in memory at once.
+      // Output is split into numbered files at 200,000 records each.
       try {
-        data = parseCsv(fs.readFileSync(dataPath, "utf-8"));
+        await convertCsvStream(dataPath, args.output, args.pretty);
       } catch (e) {
-        die(`failed to parse CSV file "${args.convert}": ${e.message}`);
+        die(`failed to convert CSV file "${args.convert}": ${e.message}`);
       }
-    } else {
-      try {
-        data = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
-      } catch (e) {
-        die(`invalid JSON in data file "${args.convert}": ${e.message}`);
-      }
-      if (!Array.isArray(data)) {
-        die(`data file must contain a JSON array of objects: ${args.convert}`);
-      }
+      return;
+    }
+
+    // JSON input: load all at once (no streaming JSON parser available without
+    // external dependencies). For very large JSON files use --max-old-space-size.
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
+    } catch (e) {
+      die(`invalid JSON in data file "${args.convert}": ${e.message}`);
+    }
+    if (!Array.isArray(data)) {
+      die(`data file must contain a JSON array of objects: ${args.convert}`);
     }
 
     const CHUNK_SIZE = 200_000;

@@ -966,6 +966,16 @@ node cli.js --convert large.csv -o output.json
 
 If no output file is given, all records are streamed to stdout as a single JSON array regardless of size.
 
+**CSV input is fully streaming** — the file is read in 64 KB chunks and records are written as they are parsed, so the entire file is never held in memory. This avoids `JavaScript heap out of memory` errors on large CSV files regardless of their size.
+
+**JSON input is not streaming** — the file is loaded with `JSON.parse` which requires the entire content in memory. If you hit a heap error on a large JSON input, increase Node's heap limit:
+
+```bash
+node --max-old-space-size=8192 cli.js --convert large.json -o output.json
+```
+
+Replace `8192` with the amount of RAM (in MB) you want to allow Node.js to use.
+
 ### CSV input
 
 The CLI accepts `.csv` files as input. The first row is treated as the header and becomes the field names for each record. Quoted fields, embedded commas, and embedded newlines are all handled correctly.
