@@ -128,6 +128,8 @@
       format: "",
       outputFormat: "",
       precision: "",
+      substringStart: "",
+      substringLength: "",
       default: "",
       kind: "simple",
       sourceMode: "path",
@@ -317,6 +319,13 @@
     if (f.outputFormat) fieldDef.outputFormat = f.outputFormat;
     if (f.precision !== "" && f.precision != null && !isNaN(Number(f.precision))) {
       fieldDef.precision = Number(f.precision);
+    }
+    if (f.format === "substring") {
+      fieldDef.start = (f.substringStart !== "" && f.substringStart != null && !isNaN(Number(f.substringStart)))
+        ? Number(f.substringStart) : 0;
+      if (f.substringLength !== "" && f.substringLength != null && !isNaN(Number(f.substringLength))) {
+        fieldDef.length = Number(f.substringLength);
+      }
     }
     if (f.default !== undefined && f.default !== "") fieldDef.default = f.default;
     if (f.value !== undefined && f.value !== "") fieldDef.value = f.value;
@@ -527,7 +536,9 @@
       type: def.type || "auto",
       format: def.format || "",
       outputFormat: def.outputFormat || "",
-      precision: def.precision != null ? def.precision : "",
+      precision:       def.precision != null ? def.precision : "",
+      substringStart:  def.start  != null ? String(def.start)  : "",
+      substringLength: def.length != null ? String(def.length) : "",
       default: def.default != null ? String(def.default) : "",
       template: def.template != null ? String(def.template) : "",
       value: "value" in def ? String(def.value) : "",

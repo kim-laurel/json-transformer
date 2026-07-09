@@ -1577,6 +1577,29 @@
       );
     }
 
+    if (field.format === "substring") {
+      return h("div", { className: "format-option-extras" + (compact ? " format-option-extras-compact" : "") },
+        h("label", { className: "mapping-field-label" }, "Start (0-based index)"),
+        h("input", {
+          className: "mapping-field-input",
+          type: "number",
+          min: 0,
+          value: field.substringStart != null ? field.substringStart : "",
+          placeholder: "0",
+          onInput: function (e) { onPatch({ substringStart: e.target.value }); },
+        }),
+        h("label", { className: "mapping-field-label" }, "Length (optional)"),
+        h("input", {
+          className: "mapping-field-input",
+          type: "number",
+          min: 1,
+          value: field.substringLength != null ? field.substringLength : "",
+          placeholder: "e.g. 10",
+          onInput: function (e) { onPatch({ substringLength: e.target.value }); },
+        })
+      );
+    }
+
     return null;
   }
 
@@ -2144,6 +2167,7 @@
               if (fmt === "date" && !field.outputFormat) updated.outputFormat = "YYYY-MM-DD";
               if (fmt === "number" && MF) Object.assign(updated, MF.applyNumberFormatUi("plain"));
               if (fmt !== "number" && fmt !== "round") updated.precision = "";
+              if (fmt !== "substring") { updated.substringStart = ""; updated.substringLength = ""; }
               onChange(index, updated);
             },
           },
@@ -2152,6 +2176,7 @@
             h("option", { value: "lowercase" }, "Lowercase"),
             h("option", { value: "titlecase" }, "Title Case"),
             h("option", { value: "trim" }, "Trim"),
+            h("option", { value: "substring" }, "Substring"),
             h("option", { value: "number" }, "Number"),
             h("option", { value: "date" }, "Date")
           )
@@ -3098,6 +3123,7 @@
       { value: "lowercase", label: "Lowercase" },
       { value: "titlecase", label: "Title Case" },
       { value: "trim", label: "Trim" },
+      { value: "substring", label: "Substring" },
       { value: "number", label: "Number" },
       { value: "date", label: "Date" },
     ];
@@ -3596,6 +3622,7 @@
                   if (fmt === "date") patch.outputFormat = (subAns && subAns.outputFormat) || "YYYY-MM-DD";
                   if (fmt === "number" && MF) Object.assign(patch, MF.applyNumberFormatUi("plain"));
                   if (fmt !== "number" && fmt !== "round") patch.precision = "";
+                  if (fmt !== "substring") { patch.substringStart = ""; patch.substringLength = ""; }
                   updateNestedAnswer(stepDef, subPath, patch);
                 },
               }),
@@ -3611,12 +3638,14 @@
                 },
               }, isSubSkipped ? "Undo" : "Skip")
             ),
-            !isSubSkipped && (displayFormat === "date" || displayFormat === "number" || (subAns && subAns.format === "round"))
+            !isSubSkipped && (displayFormat === "date" || displayFormat === "number" || displayFormat === "substring" || (subAns && subAns.format === "round"))
               ? h(FormatOptionExtras, {
                 field: {
                   format: (subAns && subAns.format) || displayFormat,
                   outputFormat: subAns && subAns.outputFormat,
                   precision: subAns && subAns.precision,
+                  substringStart: subAns && subAns.substringStart,
+                  substringLength: subAns && subAns.substringLength,
                 },
                 compact: true,
                 onPatch: function (patch) {
@@ -3747,16 +3776,19 @@
                   if (fmt === "date") patch.outputFormat = (currentAnswer && currentAnswer.outputFormat) || "YYYY-MM-DD";
                   if (fmt === "number" && MF) Object.assign(patch, MF.applyNumberFormatUi("plain"));
                   if (fmt !== "number" && fmt !== "round") patch.precision = "";
+                  if (fmt !== "substring") { patch.substringStart = ""; patch.substringLength = ""; }
                   saveStepAnswer(stepDef, patch);
                 },
               })
             ) : null,
-            !isSkipped && stepDef.kind === "simple" && (simpleFormat === "date" || simpleFormat === "number" || (currentAnswer && currentAnswer.format === "round"))
+            !isSkipped && stepDef.kind === "simple" && (simpleFormat === "date" || simpleFormat === "number" || simpleFormat === "substring" || (currentAnswer && currentAnswer.format === "round"))
               ? h(FormatOptionExtras, {
                 field: {
                   format: (currentAnswer && currentAnswer.format) || simpleFormat,
                   outputFormat: currentAnswer && currentAnswer.outputFormat,
                   precision: currentAnswer && currentAnswer.precision,
+                  substringStart: currentAnswer && currentAnswer.substringStart,
+                  substringLength: currentAnswer && currentAnswer.substringLength,
                 },
                 compact: false,
                 onPatch: function (patch) {

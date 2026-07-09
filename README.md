@@ -283,6 +283,7 @@ The normalization applies recursively to nested objects and arrays within each s
 | `round` | Round to N decimal places | `precision` (default `0`) |
 | `split` | Split a string into an array | `separator` (default `","`) |
 | `join` | Join an array into a string | `separator` (default `", "`) |
+| `substring` | Extract a portion of a string | `start` (default `0`), `length` (optional — omit to go to end) |
 | `truncate` | Trim a string to a max length, appending a suffix if cut | `length` (default `50`), `suffix` (default `"..."`) |
 | `replace` | Regex or literal substitution | `find` (pattern), `replaceWith` (default `""`), `flags` (default `"g"`) |
 | `camelcase` | Convert to camelCase | — |

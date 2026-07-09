@@ -182,29 +182,34 @@ function formatDate(dateValue, outputFormat) {
     ? dateValue.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(\.\d+)?)$/, "$1T$2")
     : dateValue;
   if (!isValidIsoDate(normalized)) return dateValue;
-  const d = new Date(normalized);
+
+  // Extract components directly from the string — never via new Date() getters.
+  // JavaScript parses date-only strings as UTC midnight and datetime-without-tz
+  // as local time, so local getters (getFullYear, getDate, …) shift the value
+  // by the process timezone.  Parsing the fields ourselves makes the result
+  // identical regardless of where the code runs.
+  const s = String(normalized);
+  const [year, month, day] = s.slice(0, 10).split("-").map(Number);
+  let hours = 0, minutes = 0, seconds = 0;
+  if (s.length > 10) {
+    const tm = /T(\d{2}):(\d{2}):(\d{2})/.exec(s);
+    if (tm) { hours = Number(tm[1]); minutes = Number(tm[2]); seconds = Number(tm[3]); }
+  }
 
   const pad2 = (n) => String(n).padStart(2, "0");
-  const YYYY = d.getFullYear();
-  const MM   = pad2(d.getMonth() + 1);
-  const DD   = pad2(d.getDate());
-  const HH   = pad2(d.getHours());
-  const mm   = pad2(d.getMinutes());
-  const ss   = pad2(d.getSeconds());
-
-  const monthName = MONTHS[d.getMonth()];
+  const monthName  = MONTHS[month - 1];
   const monthShort = monthName.slice(0, 3);
 
   const tokens = {
-    "YYYY": String(YYYY), "YY": String(YYYY).slice(-2),
-    "MM": MM, "M": String(d.getMonth() + 1),
-    "DD": DD, "D": String(d.getDate()),
-    "HH": HH, "H": String(d.getHours()),
-    "hh": pad2(d.getHours() % 12 || 12),
-    "mm": mm, "m": String(d.getMinutes()),
-    "ss": ss, "s": String(d.getSeconds()),
+    "YYYY": String(year), "YY": String(year).slice(-2),
+    "MM": pad2(month), "M": String(month),
+    "DD": pad2(day), "D": String(day),
+    "HH": pad2(hours), "H": String(hours),
+    "hh": pad2(hours % 12 || 12),
+    "mm": pad2(minutes), "m": String(minutes),
+    "ss": pad2(seconds), "s": String(seconds),
     "MMMM": monthName, "MMM": monthShort,
-    "AMPM": d.getHours() >= 12 ? "PM" : "AM",
+    "AMPM": hours >= 12 ? "PM" : "AM",
   };
 
   const sortedTokens = Object.keys(tokens)
@@ -269,6 +274,11 @@ function applyFormat(value, fieldDef) {
     case "round": {
       const factor = Math.pow(10, fieldDef.precision ?? 0);
       return Math.round(Number(value) * factor) / factor;
+    }
+    case "substring": {
+      const str   = String(value);
+      const start = fieldDef.start ?? 0;
+      return fieldDef.length != null ? str.substr(start, fieldDef.length) : str.slice(start);
     }
     case "split":
       return String(value).split(fieldDef.separator ?? ",");
