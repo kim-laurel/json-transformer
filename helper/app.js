@@ -2061,7 +2061,14 @@
             type: "text",
             value: field.target || "",
             placeholder: "output_field_name",
-            onInput: function (e) { update("target", e.target.value); },
+            onInput: function (e) {
+              var val = e.target.value;
+              var updated = Object.assign({}, field, { target: val });
+              if (!field.source && inspection && inspection.fields && inspection.fields[val] !== undefined) {
+                updated.source = val;
+              }
+              onChange(index, updated);
+            },
           })
         ),
         kind === "compute" || (kind === "simple" && !useTemplateMode) ? h("div", null,
@@ -4510,7 +4517,14 @@
     // Schema import
     function handleSchemaApply(fields, mode) {
       if (!fields || !fields.length) return;
-      var next = mode === "append" ? mappingFields.concat(fields) : fields;
+      var inspFields = inspection && inspection.fields;
+      var resolved = fields.map(function (f) {
+        if (f.kind === "simple" && !f.source && inspFields && inspFields[f.target] !== undefined) {
+          return Object.assign({}, f, { source: f.target });
+        }
+        return f;
+      });
+      var next = mode === "append" ? mappingFields.concat(resolved) : resolved;
       setMappingFieldsWithHistory(next);
       setEditorMode("visual");
       setSchemaModalOpen(false);
